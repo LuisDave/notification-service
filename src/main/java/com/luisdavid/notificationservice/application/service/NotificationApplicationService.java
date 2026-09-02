@@ -14,7 +14,7 @@ public class NotificationApplicationService implements INotificationUseCase {
 
     @Override
     public void processPaymentStatusChangedEvent(PaymentStatusChangedEvent event) {
-        // La evidencia en logs permite demostrar el consumo asíncrono sin añadir persistencia innecesaria.
+        // Se registra la transición para poder confirmar el consumo mientras no exista un canal de notificación externo.
         LOGGER.info(
                 "Evento recibido: pago {} cambió de {} a {}. Event ID: {}",
                 event.paymentId(),

@@ -1,0 +1,30 @@
+{
+  "info": {
+    "_postman_id": "e1646b4c-0087-4bfe-a954-notification-service",
+    "name": "Notification Service",
+    "description": "Endpoints de observabilidad de notification-service. Los eventos se consumen desde RabbitMQ, no mediante HTTP.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "notificationBaseUrl",
+      "value": "http://localhost:8085"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "url": "{{notificationBaseUrl}}/actuator/health"
+      }
+    },
+    {
+      "name": "OpenAPI document",
+      "request": {
+        "method": "GET",
+        "url": "{{notificationBaseUrl}}/v3/api-docs"
+      }
+    }
+  ]
+}

@@ -1,54 +1,96 @@
 # Notification Service
 
-Servicio Spring Boot que consume eventos de cambio de estado de pagos desde RabbitMQ y registra evidencia del consumo en los logs.
+> Incluye una colección Postman en `postman/notification-service.postman_collection.json`.
 
-## Responsabilidad
+Consumidor asíncrono de los cambios de estado de pago. Su responsabilidad actual es recibir el evento desde RabbitMQ y dejar evidencia del consumo en los logs; no envía correos/SMS ni administra una base de datos.
 
-El servicio recibe eventos `payment.status.changed` de la cola
-`notification.payment.status.changed`. Por ahora no persiste ni envía correos o SMS:
-su propósito es demostrar comunicación asíncrona real y mantener la implementación pequeña.
+## Especificación técnica
 
-## Estructura
+| Aspecto | Valor |
+| --- | --- |
+| Runtime | Java 21 / Spring Boot 4.1.1 |
+| Puerto HTTP | `8085` |
+| Entrada de negocio | RabbitMQ |
+| Exchange | `payment.events` (direct) |
+| Routing key | `payment.status.changed` |
+| Cola durable | `notification.payment.status.changed` |
+| Documentación | Swagger `http://localhost:8085/swagger-ui.html` |
+| Observabilidad | `GET /actuator/health` |
 
-```text
-application
-  dto            contrato del evento que procesa la aplicación
-  port/input     caso de uso de notificación
-  service        procesamiento de la notificación
-adapter/input    consumidor RabbitMQ
-infrastructure   configuración técnica
+## Flujo de mensajes
+
+1. `payment-service` confirma un cambio de estado en MySQL.
+2. Publica el evento JSON `payment.status.changed` en RabbitMQ.
+3. RabbitMQ lo enruta a `notification.payment.status.changed`.
+4. `PaymentStatusChangedListener` lo deserializa y lo entrega al caso de uso.
+5. El servicio registra el pago, los estados y el ID del evento en los logs.
+
+Contrato del evento:
+
+```json
+{
+  "eventId": "uuid",
+  "eventType": "payment.status.changed",
+  "eventVersion": "1",
+  "occurredAt": "2026-09-01T22:00:00",
+  "paymentId": 1,
+  "previousStatus": "PENDING",
+  "newStatus": "PROCESSING"
+}
 ```
-
-## Ejecutar localmente
-
-RabbitMQ debe estar disponible en `localhost:5672` con el usuario `payment_user` y contraseña `payment_pass`.
-
-```powershell
-.\mvnw.cmd spring-boot:run
-```
-
-El servicio usa el puerto `8085`.
 
 ## Configuración
 
-Las siguientes variables son opcionales y tienen valores locales por defecto:
+| Variable | Valor local predeterminado |
+| --- | --- |
+| `RABBITMQ_HOST` | `localhost` |
+| `RABBITMQ_PORT` | `5672` |
+| `RABBITMQ_USER` / `RABBITMQ_PASSWORD` | `payment_user` / `payment_pass` |
 
-- `RABBITMQ_HOST`
-- `RABBITMQ_PORT`
-- `RABBITMQ_USER`
-- `RABBITMQ_PASSWORD`
+## Ejecutar y verificar
 
-## Documentación y monitoreo
+Para el flujo completo, sigue el manual de [orchestrator](https://github.com/LuisDave/orchestrator). Desde la carpeta `orchestrator`:
 
-- Swagger UI: `http://localhost:8085/swagger-ui.html`
-- OpenAPI JSON: `http://localhost:8085/v3/api-docs`
-- Estado de salud: `http://localhost:8085/actuator/health`
+```powershell
+docker compose up --build -d
+docker compose logs -f notification-service
+```
 
-## Pruebas
+Ejecuta el happy path documentado en `payment-service`. Por cada transición válida aparecerá un registro similar a:
+
+```text
+Evento recibido: pago 1 cambió de PENDING a PROCESSING. Event ID: <uuid>
+```
+
+Puedes inspeccionar la cola desde RabbitMQ UI: `http://localhost:15672`, con `payment_user` / `payment_pass`.
+
+El `Dockerfile` construye el JAR con Maven y lo ejecuta con JRE 21. La orquestación completa vive en el repositorio [orchestrator](https://github.com/LuisDave/orchestrator).
+
+### Pasos locales
+
+1. Inicia RabbitMQ desde `payment-service` con `docker compose up -d`, o levanta todo desde [orchestrator](https://github.com/LuisDave/orchestrator).
+2. Confirma que RabbitMQ responde en `http://localhost:15672`.
+3. Desde `notification-service`, ejecuta `.\mvnw.cmd spring-boot:run`.
+4. Comprueba `http://localhost:8085/actuator/health`.
+5. Ejecuta el happy path de `payment-service` y observa `Evento recibido` en los logs.
+
+### Ejecutar el Dockerfile
+
+Con RabbitMQ local disponible, construye y ejecuta la imagen:
+
+```powershell
+docker build -t notification-service:local .
+docker run --rm --name notification-service -p 8085:8085 `
+  -e RABBITMQ_HOST=host.docker.internal -e RABBITMQ_PORT=5672 `
+  -e RABBITMQ_USER=payment_user -e RABBITMQ_PASSWORD=payment_pass notification-service:local
+```
+
+Para evitar configurar manualmente esas variables, desde la carpeta de [orchestrator](https://github.com/LuisDave/orchestrator) usa `docker compose up --build -d notification-service`.
+
+## Persistencia, pruebas y Postman
+
+Este servicio no tiene migraciones SQL porque no posee datos. El comportamiento de negocio se recibe exclusivamente por RabbitMQ. Importa `postman/notification-service.postman_collection.json` y ejecuta **Health** y **OpenAPI document** para verificar la API. Para provocar un evento de negocio, sigue el happy path de la colección de `payment-service`; el resultado se comprueba en los logs de este servicio.
 
 ```powershell
 .\mvnw.cmd test
 ```
-
-Las pruebas unitarias usan `@Tag("unit")` y las pruebas de integración usan
-`@Tag("integration")` con el sufijo `ITest`.
